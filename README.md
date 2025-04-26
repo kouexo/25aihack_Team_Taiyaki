@@ -1,0 +1,2 @@
+# 25aihack_Team_Taiyaki
+たいやきテクノロジーズのリポジトリ
