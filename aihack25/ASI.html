@@ -1,0 +1,1440 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; connect-src 'self' ; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; worker-src data: blob:; media-src 'self' blob:;">
+    <title>縦型シューティングゲーム (ボス撃破演出変更)</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #000;
+            font-family: 'Arial', sans-serif;
+            color: white;
+            overflow: hidden;
+            position: relative;
+        }
+        canvas {
+            width: 100vw;
+            height: 56.25vw;
+            max-height: 100vh;
+            border: 1px solid #444;
+            background-color: #000;
+            display: block;
+            margin: 5px auto;
+            cursor: default;
+            z-index: 1;
+        }
+        .info-panel {
+            width: 100vw;
+            max-width: 100%;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+            position: relative;
+            height: 30px;
+            z-index: 2;
+            box-sizing: border-box;
+            padding: 0 10px;
+        }
+        .info-box {
+            background-color: rgba(40, 40, 40, 0.8);
+            padding: 8px 12px;
+            border-radius: 5px;
+            font-size: 14px;
+            white-space: nowrap;
+        }
+        #lives-display { margin-left: 15px; }
+        #gamepad-status { color: red; text-align: right; }
+        #gamepad-status.connected { color: limegreen; }
+        #score-display { text-align: left; }
+        #powerup-timer-container, #barrier-timer-container {
+            position: absolute;
+            bottom: -10px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 200px;
+            height: 8px;
+            background-color: rgba(100, 100, 100, 0.7);
+            border-radius: 4px;
+            overflow: hidden;
+            display: none;
+        }
+        #barrier-timer-container { bottom: -20px; }
+        #powerup-timer-bar, #barrier-timer-bar {
+            width: 100%;
+            height: 100%;
+            background-color: orange;
+            border-radius: 4px;
+            transition: width 0.1s linear;
+        }
+        #barrier-timer-bar { background-color: cyan; }
+        #boss-hp-container {
+            position: absolute;
+            top: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 50vw;
+            max-width: 400px;
+            height: 18px;
+            background-color: rgba(100, 0, 0, 0.7);
+            border: 1px solid #f00;
+            border-radius: 5px;
+            overflow: hidden;
+            display: none;
+            z-index: 3;
+        }
+        #boss-hp-bar {
+            width: 100%;
+            height: 100%;
+            background-color: red;
+            border-radius: 4px;
+            transition: width 0.2s linear;
+        }
+        #opening-video, #victory-message, #game-over-message, #start-message, #end2-image-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background-color: rgba(0, 0, 0, 0.95);
+            background-size: cover;
+            background-position: center;
+            z-index: 10;
+            text-align: center;
+            flex-direction: column;
+            background-repeat: no-repeat;
+        }
+        #opening-video video {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+            border: none;
+        }
+        #victory-message, #game-over-message, #start-message {
+            color: white;
+            font-size: 40px;
+            padding: 20px;
+        }
+        #victory-message h1, #game-over-message h1, #start-message h1 {
+            font-size: 60px;
+            margin-bottom: 20px;
+            color: #ffcc00;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.7);
+        }
+        #game-over-message h1 {
+            color: #ff3333;
+        }
+        #victory-message p, #game-over-message p, #start-message p {
+            font-size: 24px;
+            margin-top: 15px;
+            text-shadow: 1px 1px 3px rgba(0,0,0,0.7);
+        }
+        #victory-message {
+            background-image: url('end1.png');
+            background-size: cover;
+            background-color: transparent;
+        }
+        #victory-message[style*="display: flex"] {
+            background-color: rgba(0, 0, 0, 0.9);
+        }
+        #victory-message[style*="display: flex"][style*="background-image: url('end1.png')"] {
+            background-color: transparent;
+        }
+        #end2-image-overlay {
+            background-image: url('end2.png');
+            background-color: rgba(0, 0, 0, 0.95);
+            background-size: contain;
+            background-repeat: no-repeat;
+            background-position: center;
+            z-index: 11;
+            display: none;
+        }
+        #death-text-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: none;
+            justify-content: center;
+            align-items: center;
+            z-index: 5;
+        }
+        #death-text {
+            font-size: 80px;
+            font-weight: bold;
+            color: red;
+            text-shadow: 2px 2px 5px black;
+        }
+    </style>
+</head>
+<body>
+    <div class="info-panel">
+        <div>
+            <span id="score-display" class="info-box">Score: 0</span>
+            <span id="lives-display" class="info-box">Lives: 3</span>
+        </div>
+        <div id="gamepad-status" class="info-box" data-status="disconnected">ゲームパッド未接続</div>
+        <div id="powerup-timer-container">
+            <div id="powerup-timer-bar"></div>
+        </div>
+        <div id="barrier-timer-container">
+            <div id="barrier-timer-bar"></div>
+        </div>
+    </div>
+    <canvas id="gameCanvas"></canvas>
+    <div id="boss-hp-container">
+        <div id="boss-hp-bar"></div>
+    </div>
+    <div id="start-message" style="display: flex;">
+        <div>
+            <h1>Shooting Game</h1>
+            <p>Press SPACE to Start</p>
+        </div>
+    </div>
+    <div id="opening-video" style="display: none;">
+        <video id="intro-video" preload="auto">
+            <source src="open.mp4" type="video/mp4">
+            Your browser does not support the video tag.
+        </video>
+    </div>
+    <div id="victory-message" style="display: none;">
+        <div>
+            <h1>ASI停止成功!</h1>
+            <p>Score: <span id="victory-score">0</span></p>
+        </div>
+    </div>
+    <div id="game-over-message" style="display: none;">
+        <div>
+            <h1>GAME OVER</h1>
+            <p>Score: <span id="game-over-score">0</span></p>
+            <p>Press SPACE to Restart</p>
+        </div>
+    </div>
+    <div id="death-text-overlay">
+        <span id="death-text">爆死</span>
+    </div>
+    <div id="end2-image-overlay"></div>
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const gamepadStatusDiv = document.getElementById('gamepad-status');
+        const scoreDisplay = document.getElementById('score-display');
+        const livesDisplay = document.getElementById('lives-display');
+        const powerupTimerContainer = document.getElementById('powerup-timer-container');
+        const powerupTimerBar = document.getElementById('powerup-timer-bar');
+        const barrierTimerContainer = document.getElementById('barrier-timer-container');
+        const barrierTimerBar = document.getElementById('barrier-timer-bar');
+        const bossHpContainer = document.getElementById('boss-hp-container');
+        const bossHpBar = document.getElementById('boss-hp-bar');
+        const startMessageDiv = document.getElementById('start-message');
+        const openingVideoDiv = document.getElementById('opening-video');
+        const introVideo = document.getElementById('intro-video');
+        const victoryMessageDiv = document.getElementById('victory-message');
+        const gameOverMessageDiv = document.getElementById('game-over-message');
+        const victoryScoreSpan = document.getElementById('victory-score');
+        const gameOverScoreSpan = document.getElementById('game-over-score');
+        const deathTextOverlay = document.getElementById('death-text-overlay');
+        const end2ImageOverlay = document.getElementById('end2-image-overlay');
+
+        let audioContext;
+        let masterGain;
+        const bossImage = new Image();
+        const playerImage = new Image();
+        const enemyImage = new Image();
+        const victoryBackgroundImage = new Image();
+        const end2Image = new Image();
+        let bossImageLoaded = false;
+        let playerImageLoaded = false;
+        let enemyImageLoaded = false;
+        let victoryBackgroundImageLoaded = false;
+        let end2ImageLoaded = false;
+        let ttsAudio = null;
+        let currentTtsAudioUrl = null;
+        let gameMusic = null;
+        let videoError = false;
+        let isFirstStart = true;
+
+        // キャンバスサイズとスケール
+        let baseWidth = 1280;
+        let baseHeight = 720;
+        let scaleX = 1;
+        let scaleY = 1;
+
+        function updateCanvasSize() {
+            const windowWidth = window.innerWidth;
+            const windowHeight = window.innerHeight;
+            const aspectRatio = 16 / 9;
+
+            canvas.width = windowWidth;
+            canvas.height = windowWidth / aspectRatio;
+
+            if (canvas.height > windowHeight) {
+                canvas.height = windowHeight;
+                canvas.width = windowHeight * aspectRatio;
+            }
+
+            scaleX = canvas.width / baseWidth;
+            scaleY = canvas.height / baseHeight;
+
+            canvas.style.width = `${canvas.width}px`;
+            canvas.style.height = `${canvas.height}px`;
+        }
+
+        updateCanvasSize();
+        window.addEventListener('resize', updateCanvasSize);
+
+        function scaleValue(value, isX = true) {
+            return value * (isX ? scaleX : scaleY);
+        }
+
+        // 定数
+        const PLAYER_BASE_WIDTH = 40;
+        const PLAYER_BASE_HEIGHT = 40;
+        const ENEMY_BASE_SIZE = 40;
+        const SIZE_MULTIPLIER = 1.5;
+        const PLAYER_SCALE = 1.5; // my.pngの追加スケール
+        const INITIAL_LIVES = 3;
+        const INVINCIBILITY_DURATION = 2000;
+        const BARRIER_DURATION = 8000;
+        const PLAYER_DEATH_DELAY = 2000;
+        const BOSS_EXPLOSION_DURATION = 3000;
+
+        const playerWidth = PLAYER_BASE_WIDTH * SIZE_MULTIPLIER;
+        const playerHeight = PLAYER_BASE_HEIGHT * SIZE_MULTIPLIER;
+        const enemySize = ENEMY_BASE_SIZE * SIZE_MULTIPLIER;
+
+        const bulletSpeed = 10;
+        const enemySpeed = 2.5;
+        const itemSpeed = 4;
+        const enemyBulletSpeed = 5;
+        const wordEnemySpeed = 2.5;
+        const wordEnemyMaxHp = 10;
+        const enemySpawnInterval = 900;
+        const wordEnemySpawnInterval = 3000;
+        const enemyShootIntervalBase = 2000;
+        const explosionDuration = 300;
+        const explosionRadius = 45;
+        const numStars = 200;
+        const bossSpawnTime = 30000;
+        const bossBaseWidth = 150;
+        const bossBaseHeight = 100;
+        const bossInitialHp = 100;
+        const bossBulletSpeed = 6;
+        const bossItemDropChance = 0.1;
+        const itemTypeChance = { powerup: 0.7, barrier: 0.3 };
+        const OLLAMA_API_URL = '';
+        const OLLAMA_MODEL = 'gemma3:27b';
+        const ANXIETY_PHRASE_PROMPT = "人工超知能(ASI)によって職を失うかもしれないホワイトカラー労働者の不安を煽るような、10文字程度の短い日本語のフレーズを一つだけ生成してください。マークダウンは使用しないでください。時々、命を奪われるような言葉を入れてください。例: あなたの仕事は消える, AIに代替される未来, スキルはもう古い, 存在価値はあるか？, 明日は我が身, コスト削減対象, 指示待ちは不要";
+        const FISH_SPEECH_API_URL = '';
+
+        // ゲーム状態
+        let player;
+        let bullets;
+        let enemies;
+        let items;
+        let explosions;
+        let enemyBullets;
+        let wordEnemies;
+        let stars;
+        let score;
+        let playerLives;
+        let boss = null;
+        let gamepadIndex = null;
+        let shootButtonPressed = false;
+        let keysPressed = {};
+        let spaceBarPressed = false;
+        let lastEnemySpawnTime;
+        let lastWordEnemySpawnTime = 0;
+        let gameState = 'start';
+        let gameStartTime = 0;
+        let bossSpawned = false;
+        let bossHueRotate = 0;
+        let playerDeathTime = 0;
+        let bossExplosionEndTime = 0;
+        let lastBossX = 0, lastBossY = 0, lastBossWidth = 0, lastBossHeight = 0;
+
+        // 初期化とアセット読み込み
+        function initGameMusic() {
+            if (!gameMusic) {
+                try {
+                    gameMusic = new Audio('game.mp3');
+                    gameMusic.loop = true;
+                    gameMusic.volume = 0.3;
+                    gameMusic.onerror = () => { gameMusic = null; };
+                } catch (e) {}
+            }
+        }
+        function initAudio() {
+            if (!audioContext) {
+                try {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    masterGain = audioContext.createGain();
+                    masterGain.gain.setValueAtTime(0.4, audioContext.currentTime);
+                    masterGain.connect(audioContext.destination);
+                } catch (e) {}
+            }
+        }
+        function resumeAudioContext() {
+            if (audioContext && audioContext.state === 'suspended') {
+                audioContext.resume().catch(e => {});
+            }
+            if (gameMusic && gameMusic.paused && gameState === 'playing') {
+                gameMusic.play().catch(e => {});
+            }
+        }
+        function ensureAudioContext() {
+            if (!audioContext) initAudio();
+            resumeAudioContext();
+        }
+        function playSound(type, frequency, duration = 0.1, volume = 0.5, waveType = 'sine') {
+            if (!audioContext || !masterGain) return;
+            const o = audioContext.createOscillator();
+            const g = audioContext.createGain();
+            o.type = waveType;
+            o.frequency.setValueAtTime(frequency, audioContext.currentTime);
+            g.gain.setValueAtTime(volume, audioContext.currentTime);
+            g.gain.exponentialRampToValueAtTime(0.001, audioContext.currentTime + duration);
+            o.connect(g);
+            g.connect(masterGain);
+            o.start(audioContext.currentTime);
+            o.stop(audioContext.currentTime + duration);
+        }
+        function getRandomColor() {
+            const h = Math.floor(Math.random() * 360);
+            const s = Math.floor(Math.random() * 31) + 70;
+            const l = Math.floor(Math.random() * 21) + 50;
+            return `hsl(${h}, ${s}%, ${l}%)`;
+        }
+
+        bossImage.onload = () => { bossImageLoaded = true; };
+        bossImage.onerror = () => {};
+        bossImage.src = 'ASI.png';
+        playerImage.onload = () => { playerImageLoaded = true; };
+        playerImage.onerror = () => {};
+        playerImage.src = 'my.png';
+        enemyImage.onload = () => { enemyImageLoaded = true; };
+        enemyImage.onerror = () => {};
+        enemyImage.src = 'zako.png';
+        victoryBackgroundImage.onload = () => {
+            victoryBackgroundImageLoaded = true;
+            victoryMessageDiv.style.backgroundImage = `url('${victoryBackgroundImage.src}')`;
+        };
+        victoryBackgroundImage.onerror = () => { victoryBackgroundImageLoaded = false; };
+        victoryBackgroundImage.src = 'end1.png';
+        end2Image.onload = () => {
+            end2ImageLoaded = true;
+            end2ImageOverlay.style.backgroundImage = `url('${end2Image.src}')`;
+        };
+        end2Image.onerror = () => { end2ImageLoaded = false; };
+        end2Image.src = 'end2.png';
+
+        introVideo.onended = () => {
+            openingVideoDiv.style.display = 'none';
+            startGameLogic();
+        };
+        introVideo.onerror = () => {
+            videoError = true;
+            openingVideoDiv.style.display = 'none';
+            startGameLogic();
+        };
+
+        async function speakPhrase(text, voiceId = null) {
+            if (!text || !FISH_SPEECH_API_URL) return;
+            const refId = voiceId || (Math.random() < 0.5 ? 'hikakin' : 'ishiba');
+            if (ttsAudio) {
+                ttsAudio.pause();
+                ttsAudio.src = '';
+            }
+            if (currentTtsAudioUrl) {
+                URL.revokeObjectURL(currentTtsAudioUrl);
+                currentTtsAudioUrl = null;
+            }
+            try {
+                const resp = await fetch(FISH_SPEECH_API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Accept': 'audio/mpeg' },
+                    body: JSON.stringify({ text: text, reference_id: refId, format: "mp3" })
+                });
+                if (!resp.ok) {
+                    let eD = `FE(${resp.status})`;
+                    try {
+                        const eDt = await resp.json();
+                        eD = `FE: ${eDt.detail||resp.statusText}`;
+                    } catch (e) {}
+                    throw new Error(eD);
+                }
+                const blob = await resp.blob();
+                if (blob.size === 0) throw new Error("FE empty audio.");
+                currentTtsAudioUrl = URL.createObjectURL(blob);
+                ttsAudio = new Audio(currentTtsAudioUrl);
+                ttsAudio.volume = 0.8;
+                await ttsAudio.play();
+                ttsAudio.onended = () => {
+                    if (currentTtsAudioUrl) {
+                        URL.revokeObjectURL(currentTtsAudioUrl);
+                        currentTtsAudioUrl = null;
+                    }
+                    ttsAudio = null;
+                };
+                ttsAudio.onerror = () => {
+                    if (currentTtsAudioUrl) {
+                        URL.revokeObjectURL(currentTtsAudioUrl);
+                        currentTtsAudioUrl = null;
+                    }
+                    ttsAudio = null;
+                };
+            } catch (error) {
+                if (currentTtsAudioUrl) {
+                    URL.revokeObjectURL(currentTtsAudioUrl);
+                    currentTtsAudioUrl = null;
+                }
+                ttsAudio = null;
+            }
+        }
+
+        // ゲームセットアップ
+        function resetGame() {
+            player = {
+                x: scaleValue(baseWidth / 2 - (playerWidth * PLAYER_SCALE) / 2),
+                y: scaleValue(baseHeight - (playerHeight * PLAYER_SCALE) - 20, false),
+                width: scaleValue(playerWidth * PLAYER_SCALE),
+                height: scaleValue(playerHeight * PLAYER_SCALE, false),
+                speed: scaleValue(7),
+                isPoweredUp: false,
+                powerUpTimer: 0,
+                powerUpDuration: 5000,
+                hasBarrier: false,
+                barrierTimer: 0,
+                barrierDuration: BARRIER_DURATION,
+                isInvincible: false,
+                invincibilityTimer: 0,
+                invincibilityDuration: INVINCIBILITY_DURATION
+            };
+            playerLives = INITIAL_LIVES;
+            bullets = [];
+            enemies = [];
+            items = [];
+            explosions = [];
+            enemyBullets = [];
+            wordEnemies = [];
+            boss = null;
+            bossSpawned = false;
+            score = 0;
+            lastEnemySpawnTime = 0;
+            lastWordEnemySpawnTime = 0;
+            gameStartTime = 0;
+            keysPressed = {};
+            spaceBarPressed = false;
+            shootButtonPressed = false;
+            scoreDisplay.textContent = 'Score: 0';
+            livesDisplay.textContent = `Lives: ${playerLives}`;
+            powerupTimerContainer.style.display = 'none';
+            barrierTimerContainer.style.display = 'none';
+            bossHpContainer.style.display = 'none';
+            bossHueRotate = 0;
+            playerDeathTime = 0;
+            bossExplosionEndTime = 0;
+
+            startMessageDiv.style.display = 'none';
+            openingVideoDiv.style.display = 'none';
+            victoryMessageDiv.style.display = 'none';
+            gameOverMessageDiv.style.display = 'none';
+            deathTextOverlay.style.display = 'none';
+            end2ImageOverlay.style.display = 'none';
+
+            if (!introVideo.paused) {
+                introVideo.pause();
+                introVideo.currentTime = 0;
+            }
+            if (ttsAudio) {
+                ttsAudio.pause();
+                ttsAudio.src = '';
+            }
+            if (currentTtsAudioUrl) {
+                URL.revokeObjectURL(currentTtsAudioUrl);
+                currentTtsAudioUrl = null;
+            }
+            ttsAudio = null;
+            if (gameMusic) {
+                gameMusic.pause();
+                gameMusic.currentTime = 0;
+            }
+            if (!stars) {
+                stars = [];
+                initStars();
+            }
+        }
+
+        function initStars() {
+            for (let i = 0; i < numStars; i++) {
+                stars.push({
+                    x: Math.random() * baseWidth,
+                    y: Math.random() * baseHeight,
+                    speed: Math.random() * 1.5 + 0.5,
+                    radius: Math.random() * 1.5 + 0.5
+                });
+            }
+        }
+
+        function triggerGameStart() {
+            ensureAudioContext();
+            resetGame();
+            if (isFirstStart) {
+                gameState = 'openingVideo';
+                openingVideoDiv.style.display = 'flex';
+                introVideo.currentTime = 0;
+                videoError = false;
+                introVideo.play().catch(() => {
+                    videoError = true;
+                    openingVideoDiv.style.display = 'none';
+                    startGameLogic();
+                });
+                isFirstStart = false;
+            } else {
+                startGameLogic();
+            }
+        }
+        function startGameLogic() {
+            gameState = 'playing';
+            gameStartTime = performance.now();
+            lastWordEnemySpawnTime = performance.now();
+            if (gameMusic) gameMusic.play().catch(e => {});
+        }
+
+        // 入力処理
+        document.addEventListener('keydown', (event) => {
+            if (event.key === ' ' && !spaceBarPressed) {
+                if (gameState === 'start' || gameState === 'gameOver') {
+                    spaceBarPressed = true;
+                    triggerGameStart();
+                    return;
+                } else if (gameState === 'openingVideo') {
+                    spaceBarPressed = true;
+                    introVideo.pause();
+                    openingVideoDiv.style.display = 'none';
+                    startGameLogic();
+                    return;
+                } else if (gameState === 'victory') {
+                    spaceBarPressed = true;
+                    victoryMessageDiv.style.display = 'none';
+                    end2ImageOverlay.style.display = 'flex';
+                    return;
+                }
+            }
+            if (gameState === 'playing') {
+                keysPressed[event.key] = true;
+                if (event.key === ' ' && !spaceBarPressed) {
+                    spaceBarPressed = true;
+                    shoot();
+                }
+            }
+        });
+        document.addEventListener('keyup', (event) => {
+            if (gameState === 'playing') keysPressed[event.key] = false;
+            if (event.key === ' ') spaceBarPressed = false;
+        });
+        window.addEventListener("gamepadconnected", (event) => {
+            ensureAudioContext();
+            gamepadIndex = event.gamepad.index;
+            gamepadStatusDiv.textContent = `接続中 (${event.gamepad.id.substring(0, 20)}...)`;
+            gamepadStatusDiv.classList.add('connected');
+            gamepadStatusDiv.dataset.status = 'connected';
+        });
+        window.addEventListener("gamepaddisconnected", (event) => {
+            if (gamepadIndex === event.gamepad.index) {
+                gamepadIndex = null;
+                gamepadStatusDiv.textContent = "ゲームパッド未接続";
+                gamepadStatusDiv.classList.remove('connected');
+                gamepadStatusDiv.dataset.status = 'disconnected';
+            }
+        });
+
+        function handleKeyboardInput() {
+            if (gameState !== 'playing') return;
+            let mX = 0, mY = 0;
+            if (keysPressed['ArrowLeft'] || keysPressed['a']) mX -= 1;
+            if (keysPressed['ArrowRight'] || keysPressed['d']) mX += 1;
+            if (keysPressed['ArrowUp'] || keysPressed['w']) mY -= 1;
+            if (keysPressed['ArrowDown'] || keysPressed['s']) mY += 1;
+            const mag = Math.sqrt(mX * mX + mY * mY);
+            if (mag > 0) {
+                mX /= mag;
+                mY /= mag;
+            }
+            player.x += mX * player.speed;
+            player.y += mY * player.speed;
+        }
+        function handleGamepadInput() {
+            if (gamepadIndex === null || gameState !== 'playing') return;
+            ensureAudioContext();
+            const gp = navigator.getGamepads()[gamepadIndex];
+            if (!gp) return;
+            const ax = gp.axes;
+            const dz = 0.1;
+            let mX = Math.abs(ax[0]) > dz ? ax[0] : 0;
+            let mY = Math.abs(ax[1]) > dz ? ax[1] : 0;
+            player.x += mX * player.speed;
+            player.y += mY * player.speed;
+            const sb = gp.buttons[1] || gp.buttons[0];
+            if (sb.pressed && !shootButtonPressed) {
+                shootButtonPressed = true;
+                shoot();
+            } else if (!sb.pressed) {
+                shootButtonPressed = false;
+            }
+        }
+        function handlePlayerMovement() {
+            if (gameState !== 'playing') return;
+            handleKeyboardInput();
+            handleGamepadInput();
+            player.x = Math.max(0, Math.min(canvas.width - player.width, player.x));
+            player.y = Math.max(0, Math.min(canvas.height - player.height, player.y));
+        }
+
+        // 射撃ロジック
+        function shoot() {
+            if (gameState !== 'playing') return;
+            ensureAudioContext();
+            const bX = player.x + player.width / 2;
+            const bY = player.y;
+            const bW = scaleValue(6);
+            const bH = scaleValue(12, false);
+            if (player.isPoweredUp) {
+                bullets.push({ x: bX - bW / 2, y: bY, width: bW, height: bH, angle: -0.25 });
+                bullets.push({ x: bX - bW / 2, y: bY, width: bW, height: bH, angle: 0 });
+                bullets.push({ x: bX - bW / 2, y: bY, width: bW, height: bH, angle: 0.25 });
+                playSound('shoot', 660, 0.05, 0.3, 'triangle');
+            } else {
+                bullets.push({ x: bX - bW / 2, y: bY, width: bW, height: bH, angle: 0 });
+                playSound('shoot', 440, 0.05, 0.4, 'square');
+            }
+        }
+        function enemyShoot(enemy) {
+            if (gameState !== 'playing') return;
+            const dx = (player.x + player.width / 2) - (enemy.x + enemy.width / 2);
+            const dy = (player.y + player.height / 2) - (enemy.y + enemy.height / 2);
+            const angle = Math.atan2(dy, dx);
+            const bX = enemy.x + enemy.width / 2;
+            const bY = enemy.y + enemy.height / 2;
+            enemyBullets.push({
+                x: bX,
+                y: bY,
+                width: scaleValue(8),
+                height: scaleValue(8, false),
+                angle: angle,
+                speed: scaleValue(enemyBulletSpeed),
+                isBossBullet: false
+            });
+            playSound('enemyShoot', 220, 0.08, 0.2, 'sawtooth');
+        }
+        function bossShoot() {
+            if (!boss || !boss.isAlive || gameState !== 'playing' || !player) return;
+            const bCX = boss.x + boss.width / 2;
+            const bCY = boss.y + boss.height / 2;
+            const pCX = player.x + player.width / 2;
+            const pCY = player.y + player.height / 2;
+            const angP = Math.atan2(pCY - bCY, pCX - bCX);
+            const nB = 8;
+            const sA = Math.PI / 8;
+            for (let i = 0; i < nB; i++) {
+                const ang = angP + (i - (nB - 1) / 2) * sA;
+                enemyBullets.push({
+                    x: bCX,
+                    y: bCY,
+                    width: scaleValue(10),
+                    height: scaleValue(10, false),
+                    angle: ang,
+                    speed: scaleValue(bossBulletSpeed),
+                    isBossBullet: true
+                });
+            }
+            playSound('bossShoot', 150, 0.15, 0.5, 'square');
+        }
+
+        // スポーンロジック
+        function spawnEnemy() {
+            const x = Math.random() * (canvas.width - scaleValue(enemySize));
+            const y = -scaleValue(enemySize, false);
+            enemies.push({
+                x: x,
+                y: y,
+                width: scaleValue(enemySize),
+                height: scaleValue(enemySize, false),
+                lastShotTime: performance.now(),
+                shootInterval: enemyShootIntervalBase + Math.random() * 1000
+            });
+        }
+        async function fetchAnxietyPhrase() {
+            if (!OLLAMA_API_URL) return "API URL Missing";
+            try {
+                const r = await fetch(OLLAMA_API_URL, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ model: OLLAMA_MODEL, prompt: ANXIETY_PHRASE_PROMPT, stream: false })
+                });
+                if (!r.ok) throw new Error(`Ollama API error: ${r.statusText}`);
+                const d = await r.json();
+                let p = d.response?.trim() || "次はあなたの番...";
+                if (p.length > 15) p = p.substring(0, 15);
+                p = p.replace(/[*#_`]/g, '');
+                return p;
+            } catch (e) {
+                return "エラー発生";
+            }
+        }
+        async function spawnWordEnemy() {
+            if (gameState !== 'playing') return;
+            const p = await fetchAnxietyPhrase();
+            if (!p || p === "エラー発生" || p === "API URL Missing") return;
+            const fS = scaleValue(22, false);
+            const fF = 'bold Arial';
+            ctx.font = `${fS}px ${fF}`;
+            const m = ctx.measureText(p);
+            const pW = m.width;
+            const pH = fS;
+            const x = Math.random() * (canvas.width - pW);
+            const y = -pH;
+            wordEnemies.push({
+                x: x,
+                y: y,
+                width: pW,
+                height: pH,
+                text: p,
+                speed: scaleValue(wordEnemySpeed + Math.random()),
+                color: getRandomColor(),
+                hp: wordEnemyMaxHp,
+                maxHp: wordEnemyMaxHp
+            });
+            speakPhrase(p);
+        }
+        function spawnBoss() {
+            if (!bossImageLoaded) {
+                setTimeout(spawnBoss, 100);
+                return;
+            }
+            const bW = scaleValue(bossBaseWidth * 2);
+            const bH = scaleValue(bossBaseHeight * 2, false);
+            boss = {
+                x: canvas.width / 2 - bW / 2,
+                y: -bH,
+                width: bW,
+                height: bH,
+                hp: bossInitialHp,
+                maxHp: bossInitialHp,
+                speedX: scaleValue(2),
+                targetY: scaleValue(50, false),
+                isAlive: true,
+                isEntering: true,
+                lastShotTime: performance.now(),
+                shootInterval: 1200,
+                image: bossImage
+            };
+            bossSpawned = true;
+            bossHpContainer.style.display = 'block';
+            updateBossHpBar();
+            playSound('bossAppear', 100, 1.0, 0.8, 'sawtooth');
+        }
+        function spawnItem(x, y) {
+            const size = scaleValue(20);
+            let itemType = 'powerup';
+            const rand = Math.random();
+            let cumulativeProb = 0;
+            for (const type in itemTypeChance) {
+                cumulativeProb += itemTypeChance[type];
+                if (rand < cumulativeProb) {
+                    itemType = type;
+                    break;
+                }
+            }
+            items.push({
+                x: x - size / 2,
+                y: y - size / 2,
+                width: size,
+                height: size,
+                type: itemType
+            });
+        }
+        function spawnExplosion(x, y, radiusMultiplier = 1) {
+            explosions.push({
+                x: x,
+                y: y,
+                startTime: performance.now(),
+                maxRadius: scaleValue(explosionRadius * radiusMultiplier),
+                duration: explosionDuration * radiusMultiplier
+            });
+            const bf = 110;
+            playSound('explosion', bf / radiusMultiplier, 0.2 * radiusMultiplier, 0.6, 'sawtooth');
+        }
+        function updateBossHpBar() {
+            if (boss && boss.isAlive) {
+                const hpP = Math.max(0, (boss.hp / boss.maxHp) * 100);
+                bossHpBar.style.width = hpP + '%';
+            } else {
+                bossHpContainer.style.display = 'none';
+            }
+        }
+
+        // ゲーム状態遷移
+        function triggerGameOver() {
+            if (gameState === 'playing' || gameState === 'playerDying') {
+                gameState = 'gameOver';
+                gameOverScoreSpan.textContent = score;
+                gameOverMessageDiv.style.display = 'flex';
+                deathTextOverlay.style.display = 'none';
+                if (gameMusic) gameMusic.pause();
+            }
+        }
+        function startBossExplosionSequence() {
+            if (gameState !== 'playing') return;
+            gameState = 'bossExploding';
+            bossExplosionEndTime = performance.now() + BOSS_EXPLOSION_DURATION;
+            if (gameMusic) gameMusic.pause();
+            playSound('explosion', 55, 1.0, 0.9, 'sawtooth');
+            spawnExplosion(lastBossX + lastBossWidth / 2, lastBossY + lastBossHeight / 2, 5);
+        }
+        function triggerVictoryActual() {
+            gameState = 'victory';
+            victoryScoreSpan.textContent = score;
+            if (victoryBackgroundImageLoaded) {
+                victoryMessageDiv.style.backgroundImage = `url('${victoryBackgroundImage.src}')`;
+                victoryMessageDiv.style.backgroundColor = 'transparent';
+            } else {
+                victoryMessageDiv.style.backgroundImage = 'none';
+                victoryMessageDiv.style.backgroundColor = 'rgba(0, 0, 0, 0.95)';
+            }
+            victoryMessageDiv.style.display = 'flex';
+            end2ImageOverlay.style.display = 'none';
+            setTimeout(() => { speakPhrase("エーエスアイの暴走 停止 成功", 'kizuna'); }, 500);
+        }
+
+        // プレイヤー被弾
+        function handlePlayerHit() {
+            if (player.isInvincible || gameState !== 'playing') return;
+            if (player.hasBarrier) {
+                player.hasBarrier = false;
+                barrierTimerContainer.style.display = 'none';
+                playSound('barrierBreak', 330, 0.3, 0.6, 'noise');
+                spawnExplosion(player.x + player.width / 2, player.y + player.height / 2, 0.8);
+                return;
+            }
+            playerLives--;
+            livesDisplay.textContent = `Lives: ${playerLives}`;
+            playSound('playerHit', 110, 0.4, 0.7, 'sawtooth');
+            spawnExplosion(player.x + player.width / 2, player.y + player.height / 2, 2.5);
+            speakPhrase("人間、爆死", 'hikakin');
+            gameState = 'playerDying';
+            playerDeathTime = performance.now();
+            deathTextOverlay.style.display = 'flex';
+        }
+
+        // 更新
+        function update(timestamp) {
+            const elapsedTime = timestamp - gameStartTime;
+            bossHueRotate = (timestamp / 30) % 360;
+            if (!bossSpawned && elapsedTime > bossSpawnTime) spawnBoss();
+            handlePlayerMovement();
+
+            if (player.isInvincible) {
+                if (timestamp - player.invincibilityTimer > player.invincibilityDuration) {
+                    player.isInvincible = false;
+                }
+            }
+            if (player.hasBarrier) {
+                const bET = timestamp - player.barrierTimer;
+                if (bET > player.barrierDuration) {
+                    player.hasBarrier = false;
+                    barrierTimerContainer.style.display = 'none';
+                } else {
+                    const rP = Math.max(0, 100 - (bET / player.barrierDuration) * 100);
+                    barrierTimerBar.style.width = rP + '%';
+                }
+            } else {
+                barrierTimerContainer.style.display = 'none';
+            }
+
+            stars.forEach(star => {
+                star.y += scaleValue(star.speed);
+                if (star.y > canvas.height) {
+                    star.y = -scaleValue(star.radius, false);
+                    star.x = Math.random() * canvas.width;
+                }
+            });
+            bullets.forEach((bullet, index) => {
+                bullet.x += Math.sin(bullet.angle) * scaleValue(bulletSpeed);
+                bullet.y -= Math.cos(bullet.angle) * scaleValue(bulletSpeed);
+                if (bullet.y < -bullet.height) bullets.splice(index, 1);
+            });
+            if (!bossSpawned && timestamp - lastEnemySpawnTime > enemySpawnInterval) {
+                spawnEnemy();
+                lastEnemySpawnTime = timestamp;
+            }
+            if (timestamp - lastWordEnemySpawnTime > wordEnemySpawnInterval) {
+                spawnWordEnemy();
+                lastWordEnemySpawnTime = timestamp;
+            }
+            enemies.forEach((enemy, index) => {
+                enemy.y += scaleValue(enemySpeed);
+                if (enemy.y > canvas.height) enemies.splice(index, 1);
+                else if (timestamp - enemy.lastShotTime > enemy.shootInterval && enemy.y > 0) {
+                    enemyShoot(enemy);
+                    enemy.lastShotTime = timestamp;
+                    enemy.shootInterval = enemyShootIntervalBase + Math.random() * 1000;
+                }
+            });
+            wordEnemies.forEach((wordEnemy, index) => {
+                wordEnemy.y += wordEnemy.speed;
+                if (wordEnemy.y > canvas.height) wordEnemies.splice(index, 1);
+            });
+            if (boss && boss.isAlive) {
+                if (boss.isEntering) {
+                    boss.y += scaleValue(3);
+                    if (boss.y >= boss.targetY) {
+                        boss.y = boss.targetY;
+                        boss.isEntering = false;
+                    }
+                } else {
+                    boss.x += boss.speedX;
+                    if (boss.x <= 0 || boss.x + boss.width >= canvas.width) {
+                        boss.speedX *= -1;
+                        boss.x = Math.max(0, Math.min(canvas.width - boss.width, boss.x));
+                    }
+                    if (timestamp - boss.lastShotTime > boss.shootInterval) {
+                        bossShoot();
+                        boss.lastShotTime = timestamp;
+                    }
+                }
+            }
+            enemyBullets.forEach((bullet, index) => {
+                bullet.x += Math.cos(bullet.angle) * bullet.speed;
+                bullet.y += Math.sin(bullet.angle) * bullet.speed;
+                if (bullet.x < -bullet.width || bullet.x > canvas.width || bullet.y < -bullet.height || bullet.y > canvas.height) {
+                    enemyBullets.splice(index, 1);
+                }
+            });
+            items.forEach((item, index) => {
+                item.y += scaleValue(itemSpeed);
+                if (item.y > canvas.height) items.splice(index, 1);
+            });
+            explosions.forEach((explosion, index) => {
+                if (timestamp - explosion.startTime > explosion.duration) explosions.splice(index, 1);
+            });
+
+            // 衝突検出
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                for (let j = enemies.length - 1; j >= 0; j--) {
+                    if (bullets[i] && enemies[j] &&
+                        bullets[i].x < enemies[j].x + enemies[j].width &&
+                        bullets[i].x + bullets[i].width > enemies[j].x &&
+                        bullets[i].y < enemies[j].y + enemies[j].height &&
+                        bullets[i].y + bullets[i].height > enemies[j].y) {
+                        spawnExplosion(enemies[j].x + enemies[j].width / 2, enemies[j].y + enemies[j].height / 2);
+                        bullets.splice(i, 1);
+                        enemies.splice(j, 1);
+                        score += 10;
+                        scoreDisplay.textContent = 'Score: ' + score;
+                        if (Math.random() < 0.15) spawnItem(explosions[explosions.length-1].x, explosions[explosions.length-1].y);
+                        break;
+                    }
+                }
+            }
+            for (let i = bullets.length - 1; i >= 0; i--) {
+                for (let j = wordEnemies.length - 1; j >= 0; j--) {
+                    if (bullets[i] && wordEnemies[j] &&
+                        bullets[i].x < wordEnemies[j].x + wordEnemies[j].width &&
+                        bullets[i].x + bullets[i].width > wordEnemies[j].x &&
+                        bullets[i].y < wordEnemies[j].y + wordEnemies[j].height &&
+                        bullets[i].y + bullets[i].height > wordEnemies[j].y) {
+                        bullets.splice(i, 1);
+                        wordEnemies[j].hp -= 1;
+                        playSound('hit', 1200, 0.03, 0.2, 'sine');
+                        if (wordEnemies[j].hp <= 0) {
+                            spawnExplosion(wordEnemies[j].x + wordEnemies[j].width / 2, wordEnemies[j].y + wordEnemies[j].height / 2, 1.2);
+                            wordEnemies.splice(j, 1);
+                            score += 25;
+                            scoreDisplay.textContent = 'Score: ' + score;
+                            playSound('explosion', 150, 0.25, 0.5, 'triangle');
+                        }
+                        break;
+                    }
+                }
+            }
+            if (boss && boss.isAlive) {
+                for (let i = bullets.length - 1; i >= 0; i--) {
+                    const hs = 0.8;
+                    const hw = boss.width * hs;
+                    const hh = boss.height * hs;
+                    const hx = boss.x + (boss.width - hw) / 2;
+                    const hy = boss.y + (boss.height - hh) / 2;
+                    if (bullets[i] &&
+                        bullets[i].x < hx + hw &&
+                        bullets[i].x + bullets[i].width > hx &&
+                        bullets[i].y < hy + hh &&
+                        bullets[i].y + bullets[i].height > hy) {
+                        spawnExplosion(bullets[i].x + bullets[i].width / 2, bullets[i].y, 0.6);
+                        bullets.splice(i, 1);
+                        boss.hp -= 1;
+                        updateBossHpBar();
+                        playSound('hit', 880, 0.05, 0.3, 'square');
+                        if (Math.random() < bossItemDropChance) spawnItem(boss.x + boss.width / 2, boss.y + boss.height / 2);
+                        if (boss.hp <= 0) {
+                            boss.isAlive = false;
+                            score += 1000;
+                            scoreDisplay.textContent = 'Score: ' + score;
+                            bossHpContainer.style.display = 'none';
+                            lastBossX = boss.x;
+                            lastBossY = boss.y;
+                            lastBossWidth = boss.width;
+                            lastBossHeight = boss.height;
+                            startBossExplosionSequence();
+                            break;
+                        }
+                    }
+                }
+            }
+            for (let i = enemyBullets.length - 1; i >= 0; i--) {
+                const b = enemyBullets[i];
+                const px = player.x + player.width / 2;
+                const py = player.y + player.height / 2;
+                const dx = px - b.x;
+                const dy = py - b.y;
+                const dist = Math.sqrt(dx * dx + dy * dy);
+                const pRad = player.width * 0.4;
+                if (dist < pRad + b.width / 2) {
+                    enemyBullets.splice(i, 1);
+                    handlePlayerHit();
+                    break;
+                }
+            }
+            enemies.forEach((enemy) => {
+                if (player.x < enemy.x + enemy.width &&
+                    player.x + player.width > enemy.x &&
+                    player.y < enemy.y + enemy.height &&
+                    player.y + player.height > enemy.y) {
+                    const index = enemies.indexOf(enemy);
+                    if (index > -1) {
+                        spawnExplosion(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2);
+                        enemies.splice(index, 1);
+                    }
+                    handlePlayerHit();
+                }
+            });
+            wordEnemies.forEach((wordEnemy) => {
+                if (player.x < wordEnemy.x + wordEnemy.width &&
+                    player.x + player.width > wordEnemy.x &&
+                    player.y < wordEnemy.y + wordEnemy.height &&
+                    player.y + player.height > wordEnemy.y) {
+                    const index = wordEnemies.indexOf(wordEnemy);
+                    if (index > -1) {
+                        spawnExplosion(wordEnemy.x + wordEnemy.width / 2, wordEnemy.y + wordEnemy.height / 2, 1.2);
+                        wordEnemies.splice(index, 1);
+                    }
+                    handlePlayerHit();
+                }
+            });
+            if (boss && boss.isAlive) {
+                const hs = 0.7;
+                const phw = player.width * hs;
+                const phh = player.height * hs;
+                const phx = player.x + (player.width - phw) / 2;
+                const phy = player.y + (player.height - phh) / 2;
+                const bhw = boss.width * hs;
+                const bhh = boss.height * hs;
+                const bhx = boss.x + (boss.width - bhw) / 2;
+                const bhy = boss.y + (boss.height - bhh) / 2;
+                if (phx < bhx + bhw && phx + phw > bhx &&
+                    phy < bhy + bhh && phy + phh > bhy) {
+                    handlePlayerHit();
+                }
+            }
+            items.forEach((item, itemIndex) => {
+                if (player.x < item.x + item.width &&
+                    player.x + player.width > item.x &&
+                    player.y < item.y + item.height &&
+                    player.y + player.height > item.y) {
+                    const cIT = item.type;
+                    items.splice(itemIndex, 1);
+                    if (cIT === 'powerup') {
+                        player.isPoweredUp = true;
+                        player.powerUpTimer = timestamp;
+                        powerupTimerContainer.style.display = 'block';
+                        playSound('itemGet', 880, 0.15, 0.5, 'sine');
+                    } else if (cIT === 'barrier') {
+                        player.hasBarrier = true;
+                        player.barrierTimer = timestamp;
+                        barrierTimerContainer.style.display = 'block';
+                        playSound('itemGet', 990, 0.2, 0.55, 'triangle');
+                    }
+                }
+            });
+            if (player.isPoweredUp) {
+                const el = timestamp - player.powerUpTimer;
+                if (el > player.powerUpDuration) {
+                    player.isPoweredUp = false;
+                    powerupTimerContainer.style.display = 'none';
+                } else {
+                    const pc = Math.max(0, 100 - (el / player.powerUpDuration) * 100);
+                    powerupTimerBar.style.width = pc + '%';
+                }
+            } else {
+                powerupTimerContainer.style.display = 'none';
+            }
+        }
+
+        function updatePlayerDying(timestamp) {
+            updateBackground(timestamp);
+            if (timestamp - playerDeathTime > PLAYER_DEATH_DELAY) {
+                deathTextOverlay.style.display = 'none';
+                if (playerLives <= 0) {
+                    triggerGameOver();
+                } else {
+                    player.x = canvas.width / 2 - player.width / 2;
+                    player.y = canvas.height - player.height - scaleValue(20, false);
+                    player.isInvincible = true;
+                    player.invincibilityTimer = performance.now();
+                    player.hasBarrier = false;
+                    player.isPoweredUp = false;
+                    powerupTimerContainer.style.display = 'none';
+                    barrierTimerContainer.style.display = 'none';
+                    gameState = 'playing';
+                }
+            }
+        }
+
+        function updateBossExplosion(timestamp) {
+            updateBackground(timestamp);
+            if (Math.random() < 0.5) {
+                const explosionX = lastBossX + Math.random() * lastBossWidth;
+                const explosionY = lastBossY + Math.random() * lastBossHeight;
+                spawnExplosion(explosionX, explosionY, 1 + Math.random() * 2.5);
+            }
+            if (timestamp > bossExplosionEndTime) {
+                triggerVictoryActual();
+            }
+        }
+
+        // 描画
+        function draw() {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = 'white';
+            stars.forEach(star => {
+                ctx.beginPath();
+                ctx.arc(scaleValue(star.x), scaleValue(star.y, false), scaleValue(star.radius), 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            if (gameState === 'playing') {
+                ctx.save();
+                if (player.isInvincible) {
+                    const time = performance.now();
+                    ctx.globalAlpha = 0.5 + Math.abs(Math.sin(time / 100)) * 0.4;
+                }
+                if (playerImageLoaded && playerImage) {
+                    ctx.drawImage(playerImage, player.x, player.y, player.width, player.height);
+                } else {
+                    ctx.fillStyle = player.isPoweredUp ? 'orange' : '#39f';
+                    ctx.beginPath();
+                    ctx.moveTo(player.x + player.width / 2, player.y);
+                    ctx.lineTo(player.x, player.y + player.height);
+                    ctx.lineTo(player.x + player.width, player.y + player.height);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+                ctx.restore();
+                if (player.hasBarrier) {
+                    ctx.beginPath();
+                    ctx.arc(player.x + player.width / 2, player.y + player.height / 2, player.width * 0.7, 0, Math.PI * 2);
+                    ctx.strokeStyle = 'cyan';
+                    ctx.lineWidth = scaleValue(3);
+                    ctx.fillStyle = 'rgba(0, 255, 255, 0.1)';
+                    ctx.fill();
+                    ctx.stroke();
+                }
+                ctx.fillStyle = '#ff0';
+                bullets.forEach(bullet => {
+                    ctx.fillRect(bullet.x, bullet.y, bullet.width, bullet.height);
+                });
+                enemies.forEach(enemy => {
+                    if (enemyImageLoaded && enemyImage) {
+                        ctx.drawImage(enemyImage, enemy.x, enemy.y, enemy.width, enemy.height);
+                    } else {
+                        ctx.fillStyle = '#f33';
+                        ctx.fillRect(enemy.x, enemy.y, enemy.width, enemy.height);
+                    }
+                });
+                const fS = scaleValue(22, false);
+                const fF = 'bold Arial';
+                ctx.font = `${fS}px ${fF}`;
+                ctx.textAlign = 'left';
+                ctx.textBaseline = 'top';
+                const hpBH = scaleValue(6, false);
+                const hpBOY = scaleValue(4, false);
+                wordEnemies.forEach(wE => {
+                    ctx.fillStyle = wE.color;
+                    ctx.shadowColor = 'black';
+                    ctx.shadowBlur = scaleValue(3);
+                    ctx.shadowOffsetX = scaleValue(1);
+                    ctx.shadowOffsetY = scaleValue(1);
+                    ctx.fillText(wE.text, wE.x, wE.y);
+                    ctx.shadowColor = 'transparent';
+                    const hpBW = wE.width;
+                    const hpBX = wE.x;
+                    const hpBY = wE.y + wE.height + hpBOY;
+                    ctx.fillStyle = '#555';
+                    ctx.fillRect(hpBX, hpBY, hpBW, hpBH);
+                    const cHPW = hpBW * (wE.hp / wE.maxHp);
+                    ctx.fillStyle = '#0f0';
+                    ctx.fillRect(hpBX, hpBY, cHPW, hpBH);
+                });
+                if (boss && boss.isAlive) {
+                    if (bossImageLoaded && boss.image) {
+                        ctx.save();
+                        ctx.filter = `hue-rotate(${bossHueRotate}deg) brightness(1.1)`;
+                        ctx.drawImage(boss.image, boss.x, boss.y, boss.width, boss.height);
+                        ctx.restore();
+                    } else {
+                        ctx.fillStyle = 'purple';
+                        ctx.fillRect(boss.x, boss.y, boss.width, boss.height);
+                    }
+                }
+                enemyBullets.forEach(bullet => {
+                    ctx.fillStyle = bullet.isBossBullet ? 'magenta' : 'pink';
+                    ctx.beginPath();
+                    ctx.arc(bullet.x, bullet.y, bullet.width / 2, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+                items.forEach(item => {
+                    ctx.beginPath();
+                    ctx.arc(item.x + item.width / 2, item.y + item.height / 2, item.width / 2, 0, Math.PI * 2);
+                    ctx.lineWidth = scaleValue(2);
+                    ctx.strokeStyle = 'white';
+                    let iT = '?';
+                    if (item.type === 'powerup') {
+                        ctx.fillStyle = 'lime';
+                        iT = 'P';
+                    } else if (item.type === 'barrier') {
+                        ctx.fillStyle = 'cyan';
+                        iT = 'B';
+                    } else {
+                        ctx.fillStyle = 'gray';
+                    }
+                    ctx.fill();
+                    ctx.stroke();
+                    ctx.fillStyle = 'black';
+                    ctx.font = `bold ${scaleValue(12, false)}px Arial`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.fillText(iT, item.x + item.width / 2, item.y + item.height / 2 + scaleValue(1, false));
+                });
+            }
+
+            if (gameState === 'playing' || gameState === 'playerDying' || gameState === 'bossExploding' || gameState === 'gameOver' || gameState === 'victory') {
+                explosions.forEach(exp => {
+                    const el = performance.now() - exp.startTime;
+                    const pr = Math.min(el / exp.duration, 1);
+                    const rad = exp.maxRadius * pr;
+                    const al = 1 - pr;
+                    ctx.beginPath();
+                    ctx.arc(exp.x, exp.y, rad, 0, Math.PI * 2);
+                    const r = 255;
+                    const g = Math.floor(165 + 90 * (1 - pr));
+                    const b = 0;
+                    ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${al})`;
+                    ctx.fill();
+                    ctx.strokeStyle = `rgba(255, 255, 100, ${al * 0.8})`;
+                    ctx.lineWidth = scaleValue(3);
+                    ctx.stroke();
+                });
+            }
+        }
+
+        // ゲームループ
+        let lastTime = 0;
+        function gameLoop(timestamp) {
+            const deltaTime = timestamp - lastTime;
+            lastTime = timestamp;
+
+            if (gameState === 'playing') {
+                update(timestamp);
+            } else if (gameState === 'playerDying') {
+                updatePlayerDying(timestamp);
+            } else if (gameState === 'bossExploding') {
+                updateBossExplosion(timestamp);
+            } else {
+                updateBackground(timestamp);
+            }
+
+            if (end2ImageOverlay.style.display !== 'flex') {
+                draw();
+            } else {
+                ctx.fillStyle = '#000';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                updateBackground(timestamp);
+                drawBackgroundOnly();
+            }
+
+            requestAnimationFrame(gameLoop);
+        }
+
+        function updateBackground(timestamp) {
+            stars.forEach(star => {
+                star.y += scaleValue(star.speed * 0.5);
+                if (star.y > canvas.height) {
+                    star.y = -scaleValue(star.radius, false);
+                    star.x = Math.random() * canvas.width;
+                }
+            });
+            explosions.forEach((explosion, index) => {
+                const elapsed = timestamp - explosion.startTime;
+                if (elapsed > explosion.duration) explosions.splice(index, 1);
+            });
+        }
+
+        function drawBackgroundOnly() {
+            ctx.fillStyle = '#000';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = 'white';
+            stars.forEach(star => {
+                ctx.beginPath();
+                ctx.arc(scaleValue(star.x), scaleValue(star.y, false), scaleValue(star.radius), 0, Math.PI * 2);
+                ctx.fill();
+            });
+            explosions.forEach(exp => {
+                const el = performance.now() - exp.startTime;
+                const pr = Math.min(el / exp.duration, 1);
+                const rad = exp.maxRadius * pr;
+                const al = 1 - pr;
+                ctx.beginPath();
+                ctx.arc(exp.x, exp.y, rad, 0, Math.PI * 2);
+                const r = 255;
+                const g = Math.floor(165 + 90 * (1 - pr));
+                const b = 0;
+                ctx.fillStyle = `rgba(${r}, ${g}, ${b}, ${al})`;
+                ctx.fill();
+                ctx.strokeStyle = `rgba(255, 255, 100, ${al * 0.8})`;
+                ctx.lineWidth = scaleValue(3);
+                ctx.stroke();
+            });
+        }
+
+        // 初期化
+        initAudio();
+        initGameMusic();
+        resetGame();
+        gameState = 'start';
+        startMessageDiv.style.display = 'flex';
+        requestAnimationFrame(gameLoop);
+    </script>
+</body>
+</html>
